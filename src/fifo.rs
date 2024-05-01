@@ -51,7 +51,7 @@ impl<T: Copy> CohortFifo<T> {
         unsafe {
             (*self.buffer().as_ptr())[tail] = elem;
         }
-        self.set_tail((tail + 1) % self.capacity());
+        self.set_tail((tail + 1) % self.buffer_size());
 
         Ok(())
     }
@@ -68,7 +68,7 @@ impl<T: Copy> CohortFifo<T> {
 
         let head = self.head();
         let elem = unsafe { (*self.buffer().as_ptr())[head] };
-        self.set_head((head + 1) % self.capacity());
+        self.set_head((head + 1) % self.buffer_size());
 
         Ok(elem)
     }
@@ -82,9 +82,9 @@ impl<T: Copy> CohortFifo<T> {
         }
     }
 
-    pub fn capacity(&self) -> usize {
-        self.meta.0.capacity as usize
-    }
+    // pub fn capacity(&self) -> usize {
+    //     self.meta.0.capacity as usize
+    // }
 
     /// True size of the underlying buffer.
     fn buffer_size(&self) -> usize {
@@ -122,16 +122,67 @@ impl<T: Copy> CohortFifo<T> {
     }
 
     fn buffer(&self) -> NonNull<[T]> {
-        NonNull::slice_from_raw_parts(self.meta.0.buffer, self.capacity())
+        NonNull::slice_from_raw_parts(self.meta.0.buffer, self.buffer_size())
     }
 }
 
 unsafe impl<T: Copy> Send for CohortFifo<T> {}
+unsafe impl<T: Copy> Sync for CohortFifo<T>{}
 
 impl<T: Copy> Drop for CohortFifo<T> {
     fn drop(&mut self) {
         let layout = Layout::array::<T>(self.buffer_size()).unwrap();
         let aligned = layout.align_to(128).unwrap();
         unsafe { dealloc(self.meta.0.buffer.cast().as_ptr(), aligned) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::thread;
+
+    use super::CohortFifo;
+
+    #[test]
+    fn initializes_empty() {
+        let spsc = CohortFifo::<u32>::new(10);
+        assert!(spsc.is_empty());
+    }
+
+    #[test]
+    fn test_filling_up_and_test_extra_push_and_test_emptying_and_test_extra_pop(){
+        let spsc = CohortFifo::<u32>::new(10);
+        for n in 0..10 {
+            spsc.push(n);
+        }
+        assert!(spsc.try_push(11).is_err());
+        assert!(spsc.is_full());
+        for n in 0..10 {
+            assert!(spsc.pop() == n);
+        }
+        assert!(spsc.is_empty());
+        assert!(spsc.try_pop().is_err());
+    }
+
+    #[test]
+    fn test_two_threads(){
+        let spsc = CohortFifo::<u32>::new(10);
+
+        thread::scope( |s| {
+            const THROUGHPUT: u32 = 1_000;
+            let handle = s.spawn(|| {
+            for i in 0..THROUGHPUT {
+                spsc.push(i);
+            }
+        });
+
+        for i in 0..THROUGHPUT {
+            let elem = spsc.pop();
+            assert!(elem==i);
+        }
+        assert!(spsc.is_empty());
+       
+    });
+
     }
 }
