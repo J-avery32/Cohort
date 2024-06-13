@@ -57,8 +57,8 @@ impl<T: Copy> Cohort<T> {
     ///
     /// The cohort id must not currently be in use.
     pub unsafe fn register(id: u8, capacity: usize) -> Pin<Box<Self>> {
-        let sender = CohortFifo::new(capacity);
-        let receiver = CohortFifo::new(capacity);
+        let sender = CohortFifo::new(capacity).unwrap();
+        let receiver = CohortFifo::new(capacity).unwrap();
         let custom_data = Aligned(AtomicU64::new(0));
 
         let cohort = Box::pin(Cohort {
@@ -85,28 +85,28 @@ impl<T: Copy> Cohort<T> {
     /// Sends an element to the accelerator.
     ///
     /// May block if the sending end is full.
-    pub fn push(&self, elem: T) {
-        self.sender.push(elem);
+    pub fn push(&self, elem1: T, elem2: T) {
+        self.sender.push(elem1, elem2);
     }
 
     /// Receives an element from the accelerator.
     ///
     /// May block if the receiving end is full.
-    pub fn pop(&self) -> T {
+    pub fn pop(&self) -> (T,T) {
         self.receiver.pop()
     }
 
     /// Sends an element to the accelerator.
     ///
     /// Will fail if the sending end is full.
-    pub fn try_push(&self, elem: T) -> Result<(), T> {
-        self.sender.try_push(elem)
+    pub fn try_push(&self, elem1: T, elem2: T) -> Result<(), (T,T)> {
+        self.sender.try_push(elem1, elem2)
     }
 
     /// Receives an element from the accelerator.
     ///
     /// Will fail if receiving end is full.
-    pub fn try_pop(&self) -> Result<T, ()> {
+    pub fn try_pop(&self) -> Result<(T,T), ()> {
         self.receiver.try_pop()
     }
 }
