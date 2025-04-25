@@ -31,6 +31,7 @@ use crate::util::Aligned;
 
 const BACKOFF_COUNTER_VAL: u64 = 240;
 
+
 /// a single-producer, single-consumer (SPSC) interface used to communciate with hardware accelerators.
 ///
 /// ```no_run
@@ -85,30 +86,32 @@ impl<T: Copy> Cohort<T> {
     /// Sends an element to the accelerator.
     ///
     /// May block if the sending end is full.
-    pub fn push(&self, elem1: T, elem2: T) {
-        self.sender.push(elem1, elem2);
+    pub fn push(&self, elem: &T) {
+        self.sender.push(elem);
     }
 
     /// Receives an element from the accelerator.
     ///
     /// May block if the receiving end is full.
-    pub fn pop(&self) -> (T,T) {
-        self.receiver.pop()
+    pub fn pop(&self, elem: &mut T) {
+        self.receiver.pop(elem)
     }
 
     /// Sends an element to the accelerator.
     ///
     /// Will fail if the sending end is full.
-    pub fn try_push(&self, elem1: T, elem2: T) -> Result<(), (T,T)> {
-        self.sender.try_push(elem1, elem2)
+    pub fn try_push(&self, elem: &T) -> Result<(), ()> {
+        self.sender.try_push(elem)
     }
+
 
     /// Receives an element from the accelerator.
     ///
     /// Will fail if receiving end is full.
-    pub fn try_pop(&self) -> Result<(T,T), ()> {
-        self.receiver.try_pop()
+    pub fn try_pop(&self, elem: &mut T) -> Result<(), ()> {
+        self.receiver.try_pop(elem)
     }
+
 }
 
 impl<T: Copy> Drop for Cohort<T> {

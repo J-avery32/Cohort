@@ -48,48 +48,48 @@ impl<T: Copy> CohortFifo<T> {
         })
     }
 
-    pub fn try_push(&self, elem1: T, elem2: T) -> Result<(), (T,T)> {
+    pub fn try_push(&self, elem: &T) -> Result<(), ()> {
         if self.is_full() {
-            return Err((elem1, elem2));
+            return Err(());
         }
 
         let tail = self.tail();
         unsafe {
-            (*self.buffer().as_ptr())[tail] = elem1;
-            (*self.buffer().as_ptr())[tail+1] = elem2;
+            (*self.buffer().as_ptr())[tail] = *elem;
         }
-        self.set_tail((tail + 2) % self.buffer_size());
+        self.set_tail((tail + 1) % self.buffer_size());
 
         Ok(())
     }
 
     /// Pushes an element to the fifo.
-    pub fn push(&self, elem1: T, elem2: T) {
-        while self.try_push(elem1, elem2).is_err() {}
+    pub fn push(&self, elem: &T) {
+        while self.try_push(elem).is_err() {}
     }
 
-    pub fn try_pop(&self) -> Result<(T,T), ()> {
+    pub fn try_pop(&self, elem: &mut T) -> Result<(), ()> {
         if self.is_empty() {
             return Err(());
         }
 
         let head = self.head();
-        let elem1 = unsafe { (*self.buffer().as_ptr())[head]};
-        let elem2 = unsafe { (*self.buffer().as_ptr())[head+1]};
-        self.set_head((head + 2) % self.buffer_size());
+        *elem = unsafe { (*self.buffer().as_ptr())[head]};
+        self.set_head((head + 1) % self.buffer_size());
 
-        Ok((elem1,elem2))
+        Ok(())
     }
+    
 
     /// Pops an element from the fifo.
-    pub fn pop(&self) -> (T,T) {
+    pub fn pop(&self, elem: &mut T) {
         loop {
-            if let Ok(data) = self.try_pop() {
-                break data;
+            if let Ok(()) = self.try_pop(elem) {
+                break;
             }
         }
     }
 
+    
     // pub fn capacity(&self) -> usize {
     //     (self.meta.0.buffer_size - 1) as usize
     // }
@@ -159,40 +159,64 @@ mod tests {
 
     #[test]
     fn initializes_empty() {
-        let spsc = CohortFifo::<u32>::new(10);
+        let spsc = CohortFifo::<[u8; 16]>::new(10).unwrap();
         assert!(spsc.is_empty());
     }
 
     #[test]
     fn test_filling_up_and_test_extra_push_and_test_emptying_and_test_extra_pop(){
-        let spsc = CohortFifo::<u32>::new(10);
+        let spsc = CohortFifo::<[u8; 16]>::new(10).unwrap();
+
         for n in 0..10 {
-            spsc.push(n);
+            let val: [u8; 16] = [n; 16];
+            spsc.push(&val);
         }
-        assert!(spsc.try_push(11).is_err());
         assert!(spsc.is_full());
-        for n in 0..10 {
-            assert!(spsc.pop() == n);
+        assert!(spsc.try_push(&[11; 16]).is_err());
+        assert!(spsc.is_full());
+
+        for n in 0..5 {
+            let mut val = [0;16];
+            spsc.pop(&mut val);
+            assert_eq!(val, [n;16]);
+        }
+
+        for n in 0..5 {
+            spsc.push(&mut [n;16]);
+        }
+
+        for n in 5..10 {
+            let mut val = [0;16];
+            spsc.pop(&mut val);
+            assert!(val == [n;16]);
+        }
+
+        for n in 0..5 {
+            let mut val = [0;16];
+            spsc.pop(&mut val);
+            assert!(val == [n;16]);
         }
         assert!(spsc.is_empty());
-        assert!(spsc.try_pop().is_err());
+        let mut val = [0;16];
+        assert!(spsc.try_pop(&mut val).is_err());
     }
 
     #[test]
     fn test_two_threads(){
-        let spsc = CohortFifo::<u32>::new(10);
+        let spsc = CohortFifo::<[u8;16]>::new(10).unwrap();
 
         thread::scope( |s| {
-            const THROUGHPUT: u32 = 1_000;
+            const THROUGHPUT: u32 = 10_000_000;
             let handle = s.spawn(|| {
             for i in 0..THROUGHPUT {
-                spsc.push(i);
+                spsc.push(&[(i%64) as u8;16]);
             }
         });
 
         for i in 0..THROUGHPUT {
-            let elem = spsc.pop();
-            assert!(elem==i);
+            let mut elem =[0;16];
+            spsc.pop(&mut elem);
+            assert_eq!(elem, [(i%64) as u8;16]);
         }
         assert!(spsc.is_empty());
        
