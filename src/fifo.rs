@@ -16,14 +16,14 @@ pub struct Meta<T> {
 }
 
 #[repr(C)]
-pub struct CohortFifo<T: Copy> {
+pub struct CohortFifo<T: Copy + std::fmt::Debug> {
     // Cohort requires that these fields be 128 byte alligned and in the specified order.
     head: Aligned<UnsafeCell<u32>>,
     meta: Aligned<Meta<T>>,
     tail: Aligned<UnsafeCell<u32>>,
 }
 
-impl<T: Copy> CohortFifo<T> {
+impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
     // Creates new fifo.
     pub fn new(capacity: usize) -> Result<Self, &'static str> {
         // Capacity must 
@@ -52,13 +52,14 @@ impl<T: Copy> CohortFifo<T> {
         if self.is_full() {
             return Err(());
         }
-
+        println!("-----SENDER QUEUE------");
+        self.print_queue();
         let tail = self.tail();
         unsafe {
             (*self.buffer().as_ptr())[tail] = *elem;
         }
         self.set_tail((tail + 1) % self.buffer_size());
-
+        println!("Tail advanced to: {:?}", self.tail());
         Ok(())
     }
 
@@ -71,11 +72,12 @@ impl<T: Copy> CohortFifo<T> {
         if self.is_empty() {
             return Err(());
         }
-
+        println!("---------RECEIVER QUEUE--------");
+        self.print_queue();
         let head = self.head();
         *elem = unsafe { (*self.buffer().as_ptr())[head]};
         self.set_head((head + 1) % self.buffer_size());
-
+        println!("Head advanced to: {:?}", self.head());
         Ok(())
     }
     
@@ -89,6 +91,9 @@ impl<T: Copy> CohortFifo<T> {
         }
     }
 
+    pub fn print_queue(&self){
+       unsafe{ println!("{:?}", self.buffer().as_ref())};
+    }
     
     // pub fn capacity(&self) -> usize {
     //     (self.meta.0.buffer_size - 1) as usize
@@ -140,10 +145,10 @@ impl<T: Copy> CohortFifo<T> {
     }
 }
 
-unsafe impl<T: Copy> Send for CohortFifo<T> {}
-unsafe impl<T: Copy> Sync for CohortFifo<T>{}
+unsafe impl<T: Copy + std::fmt::Debug> Send for CohortFifo<T> {}
+unsafe impl<T: Copy + std::fmt::Debug> Sync for CohortFifo<T>{}
 
-impl<T: Copy> Drop for CohortFifo<T> {
+impl<T: Copy + std::fmt::Debug> Drop for CohortFifo<T> {
     fn drop(&mut self) {
         let layout = Layout::array::<T>(self.buffer_size()).unwrap();
         let aligned = layout.align_to(128).unwrap();
@@ -171,6 +176,8 @@ mod tests {
             let val: [u8; 16] = [n; 16];
             spsc.push(&val);
         }
+
+        spsc.print_queue();
         assert!(spsc.is_full());
         assert!(spsc.try_push(&[11; 16]).is_err());
         assert!(spsc.is_full());

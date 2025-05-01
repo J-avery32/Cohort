@@ -17,6 +17,7 @@
 //! ```
 #![feature(atomic_from_mut)]
 #![warn(missing_docs)]
+#![feature(ptr_as_uninit)]
 
 mod fifo;
 pub(crate) mod util;
@@ -42,7 +43,7 @@ const BACKOFF_COUNTER_VAL: u64 = 240;
 /// // Get data from the accelerator.
 /// let data = cohort.pop();
 /// ```
-pub struct Cohort<T: Copy> {
+pub struct Cohort<T: Copy + std::fmt::Debug> {
     _id: u8,
     sender: CohortFifo<T>,
     receiver: CohortFifo<T>,
@@ -51,7 +52,7 @@ pub struct Cohort<T: Copy> {
     _pin: PhantomPinned,
 }
 
-impl<T: Copy> Cohort<T> {
+impl<T: Copy + std::fmt::Debug> Cohort<T> {
     /// Registers a cohort with the provided id with the given capacity.
     ///
     /// # Safety
@@ -112,9 +113,17 @@ impl<T: Copy> Cohort<T> {
         self.receiver.try_pop(elem)
     }
 
+    pub fn print_receiver(&self){
+        self.receiver.print_queue();
+    }
+
+    pub fn print_sender(&self){
+        self.sender.print_queue();
+    }
+
 }
 
-impl<T: Copy> Drop for Cohort<T> {
+impl<T: Copy + std::fmt::Debug> Drop for Cohort<T> {
     fn drop(&mut self) {
         unsafe {
             //TODO: check status from syscall
