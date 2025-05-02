@@ -57,7 +57,7 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
         let tail = self.tail();
         unsafe {
             (*self.buffer().as_ptr())[tail] = *elem1;
-            (*self.buffer().as_ptr())[tail+1] = *elem2;
+            (*self.buffer().as_ptr())[(tail+1) %self.buffer_size()] = *elem2;
         }
 
         self.set_tail((tail + 2) % self.buffer_size());
@@ -79,7 +79,7 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
         // self.print_queue();
         let head = self.head();
         *elem1 = unsafe { (*self.buffer().as_ptr())[head]};
-        *elem2 = unsafe {(*self.buffer().as_ptr())[head+1]};
+        *elem2 = unsafe {(*self.buffer().as_ptr())[(head+1) %self.buffer_size()]};
 
         self.set_head((head + 2) % self.buffer_size());
         // println!("Head advanced to: {:?}", self.head());
