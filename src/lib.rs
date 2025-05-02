@@ -87,30 +87,30 @@ impl<T: Copy + std::fmt::Debug> Cohort<T> {
     /// Sends an element to the accelerator.
     ///
     /// May block if the sending end is full.
-    pub fn push(&self, elem: &T) {
-        self.sender.push(elem);
+    pub fn push(&self, elem1: &T, elem2: &T) {
+        self.sender.push(elem1, elem2);
     }
 
     /// Receives an element from the accelerator.
     ///
     /// May block if the receiving end is full.
-    pub fn pop(&self, elem: &mut T) {
-        self.receiver.pop(elem)
+    pub fn pop(&self, elem1: &mut T, elem2: &mut T) {
+        self.receiver.pop(elem1, elem2)
     }
 
     /// Sends an element to the accelerator.
     ///
     /// Will fail if the sending end is full.
-    pub fn try_push(&self, elem: &T) -> Result<(), ()> {
-        self.sender.try_push(elem)
+    pub fn try_push(&self, elem1: &T, elem2: &T) -> Result<(), ()> {
+        self.sender.try_push(elem1, elem2)
     }
 
 
     /// Receives an element from the accelerator.
     ///
     /// Will fail if receiving end is full.
-    pub fn try_pop(&self, elem: &mut T) -> Result<(), ()> {
-        self.receiver.try_pop(elem)
+    pub fn try_pop(&self, elem1: &mut T, elem2: &mut T) -> Result<(), ()> {
+        self.receiver.try_pop(elem1, elem2)
     }
 
     pub fn print_receiver(&self){

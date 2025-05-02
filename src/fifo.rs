@@ -48,44 +48,49 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
         })
     }
 
-    pub fn try_push(&self, elem: &T) -> Result<(), ()> {
+    pub fn try_push(&self, elem1: &T, elem2: &T) -> Result<(), ()> {
         if self.is_full() {
             return Err(());
         }
-        println!("-----SENDER QUEUE------");
-        self.print_queue();
+        // println!("-----SENDER QUEUE------");
+        // self.print_queue();
         let tail = self.tail();
         unsafe {
-            (*self.buffer().as_ptr())[tail] = *elem;
+            (*self.buffer().as_ptr())[tail] = *elem1;
+            (*self.buffer().as_ptr())[tail+1] = *elem2;
         }
-        self.set_tail((tail + 1) % self.buffer_size());
-        println!("Tail advanced to: {:?}", self.tail());
+
+        self.set_tail((tail + 2) % self.buffer_size());
+        // println!("Tail advanced to: {:?}", self.tail());
         Ok(())
     }
 
     /// Pushes an element to the fifo.
-    pub fn push(&self, elem: &T) {
-        while self.try_push(elem).is_err() {}
+    pub fn push(&self, elem1: &T, elem2: &T) {
+        while self.try_push(elem1, elem2).is_err() {}
     }
 
-    pub fn try_pop(&self, elem: &mut T) -> Result<(), ()> {
-        if self.is_empty() {
+    pub fn try_pop(&self, elem1: &mut T, elem2: &mut T) -> Result<(), ()> {
+        // Ensure that the accelerator has pushed at least two elements onto the queue
+        if self.is_empty() || self.num_elems() == 1 {
             return Err(());
         }
-        println!("---------RECEIVER QUEUE--------");
-        self.print_queue();
+        // println!("---------RECEIVER QUEUE--------");
+        // self.print_queue();
         let head = self.head();
-        *elem = unsafe { (*self.buffer().as_ptr())[head]};
-        self.set_head((head + 1) % self.buffer_size());
-        println!("Head advanced to: {:?}", self.head());
+        *elem1 = unsafe { (*self.buffer().as_ptr())[head]};
+        *elem2 = unsafe {(*self.buffer().as_ptr())[head+1]};
+
+        self.set_head((head + 2) % self.buffer_size());
+        // println!("Head advanced to: {:?}", self.head());
         Ok(())
     }
     
 
     /// Pops an element from the fifo.
-    pub fn pop(&self, elem: &mut T) {
+    pub fn pop(&self, elem1: &mut T, elem2: &mut T) {
         loop {
-            if let Ok(()) = self.try_pop(elem) {
+            if let Ok(()) = self.try_pop(elem1, elem2) {
                 break;
             }
         }
@@ -142,6 +147,18 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
 
     fn buffer(&self) -> NonNull<[T]> {
         NonNull::slice_from_raw_parts(self.meta.0.buffer, self.buffer_size())
+    }
+
+    fn num_elems(&self) -> usize {
+        if self.head() > self.tail() {
+            return (self.head()-self.tail()); 
+        } else {
+            return self.capacity() + self.head() - self.tail();
+        }
+    }
+
+    fn capacity(&self) -> usize {
+        self.buffer_size()-1
     }
 }
 

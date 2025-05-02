@@ -37,25 +37,20 @@ fn main() {
 
 
     // SAFETY: No other cohorts are associated with id 0.
-    let  cohort: std::pin::Pin<Box<Cohort<i64>>> = unsafe { Cohort::register(0, 64) };
+    let  cohort: std::pin::Pin<Box<Cohort<[u8;8]>>> = unsafe { Cohort::register(0, 64) };
     let mut arr1: [u8; 8] = [1; 8];
     let mut arr2: [u8; 8] = [2; 8];
 
-    cohort.push(&-1);
-    cohort.push(&-2);
-    cohort.push(&-1);
-    cohort.push(&-2);
-    let mut result = 0;
-    cohort.pop(&mut result);
-    println!("{:?}", result);
-    cohort.pop(&mut result);
-    println!("{:?}", result);
-    cohort.pop(&mut result);
-    println!("{:?}", result);
-    cohort.pop(&mut result);
-    println!("{:?}", result);
-    cohort.pop(&mut result);
-    println!("{:?}", result);
+    cohort.push(&arr1, &arr2);
+    cohort.push(&arr1, &arr2);
+    let mut result1 = [0 as u8; 8];
+    let mut result2 = [0 as u8; 8];
+    cohort.pop(&mut result1, &mut result2);
+    println!("{:?}", result1);
+    println!("{:?}", result2);
+    cohort.pop(&mut result1, &mut result2);
+    println!("{:?}", result1);
+    println!("{:?}", result2);
 
     println!("TEST TESTING");
     // cohort.print_sender();
