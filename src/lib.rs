@@ -32,7 +32,6 @@ use crate::util::Aligned;
 
 const BACKOFF_COUNTER_VAL: u64 = 240;
 
-
 /// a single-producer, single-consumer (SPSC) interface used to communciate with hardware accelerators.
 ///
 /// ```no_run
@@ -105,7 +104,6 @@ impl<T: Copy + std::fmt::Debug> Cohort<T> {
         self.sender.try_push(elem1, elem2)
     }
 
-
     /// Receives an element from the accelerator.
     ///
     /// Will fail if receiving end is full.
@@ -113,14 +111,13 @@ impl<T: Copy + std::fmt::Debug> Cohort<T> {
         self.receiver.try_pop(elem1, elem2)
     }
 
-    pub fn print_receiver(&self){
+    pub fn print_receiver(&self) {
         self.receiver.print_queue();
     }
 
-    pub fn print_sender(&self){
+    pub fn print_sender(&self) {
         self.sender.print_queue();
     }
-
 }
 
 impl<T: Copy + std::fmt::Debug> Drop for Cohort<T> {
