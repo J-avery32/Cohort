@@ -98,10 +98,6 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
         unsafe { println!("{:?}", self.buffer().as_ref()) };
     }
 
-    // pub fn capacity(&self) -> usize {
-    //     (self.meta.0.buffer_size - 1) as usize
-    // }
-
     /// True size of the underlying buffer.
     fn buffer_size(&self) -> usize {
         // Should always be one more than the given capacity.
