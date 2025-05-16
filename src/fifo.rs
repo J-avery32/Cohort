@@ -147,7 +147,7 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
 
     fn num_elems(&self) -> usize {
         if self.head() > self.tail() {
-            return (self.head() - self.tail());
+            return self.head() - self.tail();
         } else {
             return self.capacity() + self.head() - self.tail();
         }
