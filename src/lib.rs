@@ -21,6 +21,7 @@
 
 mod fifo;
 pub(crate) mod util;
+pub mod error;
 
 use core::marker::PhantomPinned;
 use core::pin::Pin;
@@ -33,6 +34,9 @@ use crate::util::Aligned;
 const COHORT_REGISTER_SYSCALL: libc::c_int = 258;
 const COHORT_UNREGISTER_SYSCALL: libc::c_int = 257;
 const BACKOFF_COUNTER_VAL: u64 = 240;
+
+/// A specialized `Result` type for FIFO operations, using [`Error`] as the error type.
+pub type Result<T> = std::result::Result<T, crate::error::Error>;
 
 /// a single-producer, single-consumer (SPSC) interface used to communciate with hardware accelerators.
 ///
@@ -102,14 +106,14 @@ impl<T: Copy + std::fmt::Debug> Cohort<T> {
     /// Sends an element to the accelerator.
     ///
     /// Will fail if the sending end is full.
-    pub fn try_push(&self, elem1: &T, elem2: &T) -> Result<(), ()> {
+    pub fn try_push(&self, elem1: &T, elem2: &T) -> Result<()> {
         self.sender.try_push(elem1, elem2)
     }
 
     /// Receives an element from the accelerator.
     ///
     /// Will fail if receiving end is full.
-    pub fn try_pop(&self, elem1: &mut T, elem2: &mut T) -> Result<(), ()> {
+    pub fn try_pop(&self, elem1: &mut T, elem2: &mut T) -> Result<()> {
         self.receiver.try_pop(elem1, elem2)
     }
 

@@ -1,4 +1,5 @@
-use crate::util::Aligned;
+use crate::error::Error;
+use crate::{Result, util::Aligned};
 use core::ptr::NonNull;
 use std::sync::atomic::{fence, Ordering};
 use std::{
@@ -24,10 +25,10 @@ pub struct CohortFifo<T: Copy + std::fmt::Debug> {
 
 impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
     // Creates new fifo.
-    pub fn new(capacity: usize) -> Result<Self, &'static str> {
+    pub fn new(capacity: usize) -> Result<Self> {
         // Capacity must be divisible by 2.
         if capacity % 2 != 0 {
-            return Err("Arg `capacity` must be divisible by 2.");
+            return Err(Error::Capacity(capacity));
         }
         let buffer = unsafe {
             let buffer_size = capacity + 1;
@@ -47,9 +48,9 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
         })
     }
 
-    pub fn try_push(&self, elem1: &T, elem2: &T) -> Result<(), ()> {
+    pub fn try_push(&self, elem1: &T, elem2: &T) -> Result<()> {
         if self.is_full() {
-            return Err(());
+            return Err(Error::Full);
         }
         // println!("-----SENDER QUEUE------");
         // self.print_queue();
@@ -69,10 +70,10 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
         while self.try_push(elem1, elem2).is_err() {}
     }
 
-    pub fn try_pop(&self, elem1: &mut T, elem2: &mut T) -> Result<(), ()> {
+    pub fn try_pop(&self, elem1: &mut T, elem2: &mut T) -> Result<()> {
         // Ensure that the accelerator has pushed at least two elements onto the queue
         if self.is_empty() || self.num_elems() == 1 {
-            return Err(());
+            return Err(Error::Empty);
         }
         // println!("---------RECEIVER QUEUE--------");
         // self.print_queue();
