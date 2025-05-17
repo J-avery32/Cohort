@@ -94,33 +94,39 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
         }
     }
 
+    /// Prints the contents of the underlying buffer for debugging.
     pub fn print_queue(&self) {
         unsafe { println!("{:?}", self.buffer().as_ref()) };
     }
 
-    /// True size of the underlying buffer.
+    /// Returns the true size of the underlying buffer (capacity + 1).
     fn buffer_size(&self) -> usize {
         // Should always be one more than the given capacity.
         // The extra allocated slot in the buffer is used to determine whether the buffer is full.
         (self.meta.0.buffer_size) as usize
     }
 
+    /// Returns true if the FIFO is full.
     pub fn is_full(&self) -> bool {
         (self.head() % self.buffer_size()) == ((self.tail() + 1) % self.buffer_size())
     }
 
+    /// Returns true if the FIFO is empty.
     pub fn is_empty(&self) -> bool {
         self.head() == self.tail()
     }
 
+    /// Returns the current head index.
     fn head(&self) -> usize {
         unsafe { ptr::read_volatile(self.head.0.get()) as usize }
     }
 
+    /// Returns the current tail index.
     fn tail(&self) -> usize {
         unsafe { ptr::read_volatile(self.tail.0.get()) as usize }
     }
 
+    /// Sets the head index to the given value with memory ordering guarantees.
     fn set_head(&self, head: usize) {
         fence(Ordering::SeqCst);
         unsafe {
@@ -129,6 +135,7 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
         fence(Ordering::SeqCst);
     }
 
+    /// Sets the tail index to the given value with memory ordering guarantees.
     fn set_tail(&self, tail: usize) {
         fence(Ordering::SeqCst);
         unsafe {
@@ -137,10 +144,12 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
         fence(Ordering::SeqCst);
     }
 
+    /// Returns a non-null pointer to the buffer as a slice.
     fn buffer(&self) -> NonNull<[T]> {
         NonNull::slice_from_raw_parts(self.meta.0.buffer, self.buffer_size())
     }
 
+    /// Returns the number of elements currently in the FIFO.
     fn num_elems(&self) -> usize {
         if self.head() > self.tail() {
             return self.head() - self.tail();
@@ -149,7 +158,10 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
         }
     }
 
-    fn capacity(&self) -> usize {
+    /// Returns the capacity of the FIFO.
+    /// The capacity is the number of elements that can be stored in the FIFO.
+    /// This is the size of the buffer minus one, as one slot is used to determine if the FIFO is full.
+    pub fn capacity(&self) -> usize {
         self.buffer_size() - 1
     }
 }
