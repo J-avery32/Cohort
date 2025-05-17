@@ -30,6 +30,8 @@ use fifo::CohortFifo;
 
 use crate::util::Aligned;
 
+const COHORT_REGISTER_SYSCALL: libc::c_int = 258;
+const COHORT_UNREGISTER_SYSCALL: libc::c_int = 257;
 const BACKOFF_COUNTER_VAL: u64 = 240;
 
 /// a single-producer, single-consumer (SPSC) interface used to communciate with hardware accelerators.
@@ -46,7 +48,7 @@ pub struct Cohort<T: Copy + std::fmt::Debug> {
     _id: u8,
     sender: CohortFifo<T>,
     receiver: CohortFifo<T>,
-    custom_data: Aligned<AtomicU64>, //TODO: Determine type
+    custom_data: Aligned<AtomicU64>, // TODO: Determine type
     // Prevents compiler from implementing unpin trait
     _pin: PhantomPinned,
 }
@@ -72,7 +74,7 @@ impl<T: Copy + std::fmt::Debug> Cohort<T> {
 
         unsafe {
             libc::syscall(
-                258,
+                COHORT_REGISTER_SYSCALL,
                 &cohort.sender,
                 &cohort.receiver,
                 &(cohort.custom_data.0),
@@ -124,7 +126,7 @@ impl<T: Copy + std::fmt::Debug> Drop for Cohort<T> {
     fn drop(&mut self) {
         unsafe {
             //TODO: check status from syscall
-            libc::syscall(257);
+            libc::syscall(COHORT_UNREGISTER_SYSCALL);
         }
     }
 }
