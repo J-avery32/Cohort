@@ -1,7 +1,7 @@
 use crate::util::Aligned;
 use core::ptr::NonNull;
 use std::{
-    alloc::{alloc, dealloc, Layout},
+    alloc::{alloc_zeroed, dealloc, Layout},
     cell::UnsafeCell,
     mem, ptr,
 };
@@ -34,7 +34,7 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
             let buffer_size = capacity + 1;
             let layout = Layout::array::<T>(buffer_size).unwrap();
             let aligned = layout.align_to(128).unwrap();
-            NonNull::new(alloc(aligned)).unwrap()
+            NonNull::new(alloc_zeroed(aligned)).unwrap()
         };
 
         Ok(CohortFifo {
@@ -73,6 +73,7 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
     pub fn try_pop(&self, elem1: &mut T, elem2: &mut T) -> Result<(), ()> {
         // Ensure that the accelerator has pushed at least two elements onto the queue
         if self.is_empty() || self.num_elems() == 1 {
+            // println!("NUMBER OF ELEMS: {}", self.num_elems());
             return Err(());
         }
         // println!("---------RECEIVER QUEUE--------");
@@ -150,7 +151,7 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
     }
 
     fn num_elems(&self) -> usize {
-        if self.head() > self.tail() {
+        if self.head() >= self.tail() {
             return (self.head()-self.tail()); 
         } else {
             return self.capacity() + self.head() - self.tail();
