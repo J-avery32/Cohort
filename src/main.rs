@@ -35,7 +35,7 @@ fn main() {
     let mut accumulator : u64 = 0;
 
     // SAFETY: No other cohorts are associated with id 0.
-    let  cohort: std::pin::Pin<Box<Cohort<[u8;8]>>> = unsafe { Cohort::register(0, 128*50) };
+    let  cohort: std::pin::Pin<Box<Cohort<[u8;8]>>> = unsafe { Cohort::register(0, 128*50, 64) };
     let arr1: [u8; 8] = [128,0,0,0,0,0,0,0];
     let arr2: [u8; 8] = [2; 8];
 
