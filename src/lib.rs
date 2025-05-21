@@ -21,6 +21,7 @@
 
 mod fifo;
 pub(crate) mod util;
+/// Error types used by the Cohort crate.
 pub mod error;
 
 use core::marker::PhantomPinned;
@@ -117,12 +118,15 @@ impl<T: Copy + std::fmt::Debug> Cohort<T> {
         self.receiver.try_pop(elem1, elem2)
     }
 
-    pub fn print_receiver(&self) {
-        self.receiver.print_queue();
+    /// Returns a string representation of the receiver FIFO.
+    pub fn receiver_to_string(&self) -> String {
+        self.receiver.to_string()
     }
-
-    pub fn print_sender(&self) {
-        self.sender.print_queue();
+    
+    
+    /// Returns a string representation of the sender FIFO.
+    pub fn sender_to_string(&self) -> String {
+        self.sender.to_string()
     }
 }
 

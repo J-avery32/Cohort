@@ -1,5 +1,5 @@
 use crate::error::Error;
-use crate::{Result, util::Aligned};
+use crate::{util::Aligned, Result};
 use core::ptr::NonNull;
 use std::sync::atomic::{fence, Ordering};
 use std::{
@@ -23,6 +23,34 @@ pub struct CohortFifo<T: Copy + std::fmt::Debug> {
     tail: Aligned<UnsafeCell<u32>>,
 }
 
+/// An iterator over the elements currently in the FIFO queue.
+pub struct CohortFifoIter<'a, T: Copy + std::fmt::Debug> {
+    fifo: &'a CohortFifo<T>,
+    idx: usize,
+    remaining: usize,
+}
+
+impl<'a, T: Copy + std::fmt::Debug> Iterator for CohortFifoIter<'a, T> {
+    type Item = (usize, T);
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 {
+            return None;
+        }
+        let buffer = unsafe { self.fifo.buffer().as_ref() };
+        let idx = self.idx;
+        let value = buffer[idx];
+        self.idx = (self.idx + 1) % self.fifo.buffer_size();
+        self.remaining -= 1;
+        Some((idx, value))
+    }
+}
+
+impl<'a, T: Copy + std::fmt::Debug> ExactSizeIterator for CohortFifoIter<'a, T> {
+    fn len(&self) -> usize {
+        self.remaining
+    }
+}
+
 impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
     // Creates new fifo.
     pub fn new(capacity: usize) -> Result<Self> {
@@ -32,9 +60,8 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
         }
         let buffer = unsafe {
             let buffer_size = capacity + 1;
-            let layout = Layout::array::<T>(buffer_size).unwrap();
-            let aligned = layout.align_to(128).unwrap();
-            NonNull::new(alloc(aligned)).unwrap()
+            let layout = Layout::from_size_align(buffer_size * mem::size_of::<T>(), 128).unwrap();
+            NonNull::new(alloc(layout)).unwrap()
         };
 
         Ok(CohortFifo {
@@ -93,11 +120,6 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
                 break;
             }
         }
-    }
-
-    /// Prints the contents of the underlying buffer for debugging.
-    pub fn print_queue(&self) {
-        unsafe { println!("{:?}", self.buffer().as_ref()) };
     }
 
     /// Returns the true size of the underlying buffer (capacity + 1).
@@ -165,6 +187,39 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
     pub fn capacity(&self) -> usize {
         self.buffer_size() - 1
     }
+
+    /// Returns an iterator over the elements currently in the FIFO queue.
+    pub fn iter(&self) -> CohortFifoIter<'_, T> {
+        let tail = self.tail();
+        CohortFifoIter {
+            fifo: self,
+            idx: tail,
+            remaining: self.num_elems(),
+        }
+    }
+}
+
+impl<T: Copy + std::fmt::Debug> std::fmt::Display for CohortFifo<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let elems: Vec<String> = self
+            .iter()
+            .map(|(idx, value)| format!("[{}]={:?}", idx, value))
+            .collect();
+        write!(
+            f,
+            "CohortFifo {{ head: {}, tail: {}, num_elems: {}, queue: [{}] }}",
+            self.head(),
+            self.tail(),
+            self.num_elems(),
+            elems.join(", ")
+        )
+    }
+}
+
+impl<T: Copy + std::fmt::Debug> std::fmt::Debug for CohortFifo<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_string())
+    }
 }
 
 unsafe impl<T: Copy + std::fmt::Debug> Send for CohortFifo<T> {}
@@ -180,8 +235,6 @@ impl<T: Copy + std::fmt::Debug> Drop for CohortFifo<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::thread;
-
     use super::CohortFifo;
 
     #[test]
@@ -191,63 +244,210 @@ mod tests {
     }
 
     #[test]
-    fn test_filling_up_and_test_extra_push_and_test_emptying_and_test_extra_pop() {
+    fn test_fifo_fill_and_full() {
+        // Create a FIFO with capacity for 10 elements (5 pairs)
         let spsc = CohortFifo::<[u8; 16]>::new(10).unwrap();
-
-        for n in 0..10 {
-            let val: [u8; 16] = [n; 16];
-            spsc.push(&val);
+        // Fill the queue with 5 pairs of elements
+        for n in 0..5 {
+            // Each pair is (n*2, n*2+1) for easy verification
+            let val1: [u8; 16] = [n * 2; 16];
+            let val2: [u8; 16] = [n * 2 + 1; 16];
+            assert!(spsc.try_push(&val1, &val2).is_ok());
         }
-
-        spsc.print_queue();
+        // Debug print the FIFO state
+        println!("{spsc}");
+        // The FIFO should now be full
         assert!(spsc.is_full());
-        assert!(spsc.try_push(&[11; 16]).is_err());
+    }
+
+    #[test]
+    fn test_fifo_extra_push_when_full() {
+        // Fill the FIFO to capacity
+        let spsc = CohortFifo::<[u8; 16]>::new(10).unwrap();
+        for n in 0..5 {
+            let val1: [u8; 16] = [n * 2; 16];
+            let val2: [u8; 16] = [n * 2 + 1; 16];
+            assert!(spsc.try_push(&val1, &val2).is_ok());
+        }
+        // Confirm the FIFO is full
         assert!(spsc.is_full());
+        // Try to push another pair, which should fail
+        assert!(spsc.try_push(&[11; 16], &[12; 16]).is_err());
+        // The FIFO should still be full
+        assert!(spsc.is_full());
+    }
 
+    #[test]
+    fn test_fifo_emptying() {
+        // Fill the FIFO with 5 pairs
+        let spsc = CohortFifo::<[u8; 16]>::new(10).unwrap();
         for n in 0..5 {
-            let mut val = [0; 16];
-            spsc.pop(&mut val);
-            assert_eq!(val, [n; 16]);
+            let val1: [u8; 16] = [n * 2; 16];
+            let val2: [u8; 16] = [n * 2 + 1; 16];
+            assert!(spsc.try_push(&val1, &val2).is_ok());
         }
-
+        // Pop all 5 pairs and check their values
         for n in 0..5 {
-            spsc.push(&mut [n; 16]);
+            let mut val1 = [0; 16];
+            let mut val2 = [0; 16];
+            assert!(spsc.try_pop(&mut val1, &mut val2).is_ok());
+            // Each pop should return the expected pair
+            assert_eq!(val1, [n * 2; 16]);
+            assert_eq!(val2, [n * 2 + 1; 16]);
         }
-
-        for n in 5..10 {
-            let mut val = [0; 16];
-            spsc.pop(&mut val);
-            assert!(val == [n; 16]);
-        }
-
-        for n in 0..5 {
-            let mut val = [0; 16];
-            spsc.pop(&mut val);
-            assert!(val == [n; 16]);
-        }
+        // The FIFO should now be empty
         assert!(spsc.is_empty());
-        let mut val = [0; 16];
-        assert!(spsc.try_pop(&mut val).is_err());
+    }
+
+    #[test]
+    fn test_fifo_refill_and_empty_again() {
+        // Create and fill the FIFO
+        let spsc = CohortFifo::<[u8; 16]>::new(10).unwrap();
+        println!("New FIFO: {spsc}");
+
+        println!("Filling FIFO");
+        for n in 0..5 {
+            println!("Fifo (n={n}): {spsc}");
+            let val1: [u8; 16] = [n * 2; 16];
+            let val2: [u8; 16] = [n * 2 + 1; 16];
+            assert!(spsc.try_push(&val1, &val2).is_ok());
+        }
+        // Empty the FIFO completely
+        println!("Emptying FIFO");
+        for n in 0..5 {
+            println!("Fifo (n={n}): {spsc}");
+            let mut val1 = [0; 16];
+            let mut val2 = [0; 16];
+            assert!(spsc.try_pop(&mut val1, &mut val2).is_ok());
+        }
+        // Refill the FIFO with the same pattern
+        println!("Refilling FIFO");
+        for n in 0..5 {
+            println!("Fifo (n={n}): {spsc}");
+            let val1: [u8; 16] = [n * 2; 16];
+            let val2: [u8; 16] = [n * 2 + 1; 16];
+            assert!(spsc.try_push(&val1, &val2).is_ok());
+            println!("Fifo: {}", spsc);
+        }
+        // Empty again and check values
+        println!("Reemptying FIFO");
+        for n in 0..5 {
+            println!("Fifo (n={n}): {spsc}");
+            let mut val1 = [0; 16];
+            let mut val2 = [0; 16];
+            assert!(spsc.try_pop(&mut val1, &mut val2).is_ok());
+            assert_eq!(val1, [n * 2; 16]);
+            assert_eq!(val2, [n * 2 + 1; 16]);
+        }
+        // The FIFO should be empty again
+        assert!(spsc.is_empty());
+    }
+
+    #[test]
+    fn test_fifo_try_pop_when_empty() {
+        // Create an empty FIFO
+        let spsc = CohortFifo::<[u8; 16]>::new(10).unwrap();
+        let mut val1 = [0; 16];
+        let mut val2 = [0; 16];
+        // Try to pop from the empty FIFO, which should fail
+        assert!(spsc.try_pop(&mut val1, &mut val2).is_err());
     }
 
     #[test]
     fn test_two_threads() {
         let spsc = CohortFifo::<[u8; 16]>::new(10).unwrap();
 
-        thread::scope(|s| {
+        std::thread::scope(|s| {
             const THROUGHPUT: u32 = 10_000_000;
             let handle = s.spawn(|| {
-                for i in 0..THROUGHPUT {
-                    spsc.push(&[(i % 64) as u8; 16]);
+                for i in 0..THROUGHPUT / 2 {
+                    let v1 = [(i % 64) as u8; 16];
+                    let v2 = [((i + 1) % 64) as u8; 16];
+                    assert!(spsc.try_push(&v1, &v2).is_ok());
                 }
             });
 
-            for i in 0..THROUGHPUT {
-                let mut elem = [0; 16];
-                spsc.pop(&mut elem);
-                assert_eq!(elem, [(i % 64) as u8; 16]);
+            for i in 0..THROUGHPUT / 2 {
+                let mut elem1 = [0; 16];
+                let mut elem2 = [0; 16];
+                assert!(spsc.try_pop(&mut elem1, &mut elem2).is_ok());
+                assert_eq!(elem1, [(i % 64) as u8; 16]);
+                assert_eq!(elem2, [((i + 1) % 64) as u8; 16]);
             }
             assert!(spsc.is_empty());
+            handle.join().unwrap();
         });
+    }
+
+    #[test]
+    fn wraparound_behavior() {
+        // Test that the FIFO correctly wraps around the buffer boundary.
+        let spsc = CohortFifo::<u8>::new(4).unwrap();
+        // Fill the buffer (capacity is 4, so 4 elements)
+        assert!(spsc.try_push(&1, &2).is_ok());
+        assert!(spsc.try_push(&3, &4).is_ok());
+        assert!(spsc.is_full());
+        // Pop two elements
+        let mut a = 0;
+        let mut b = 0;
+        assert!(spsc.try_pop(&mut a, &mut b).is_ok());
+        assert_eq!((a, b), (1, 2));
+        // Push two more, should wrap around
+        assert!(spsc.try_push(&5, &6).is_ok());
+        assert!(spsc.is_full());
+        // Pop all remaining
+        assert!(spsc.try_pop(&mut a, &mut b).is_ok());
+        assert_eq!((a, b), (3, 4));
+        assert!(spsc.try_pop(&mut a, &mut b).is_ok());
+        assert_eq!((a, b), (5, 6));
+        assert!(spsc.is_empty());
+    }
+
+    #[test]
+    fn never_overflow_or_underflow() {
+        // Test that the FIFO never overflows or underflows, even with repeated wraparounds.
+        let spsc = CohortFifo::<u32>::new(8).unwrap();
+        let mut expected = 0u32;
+        for _ in 0..100 {
+            // Fill
+            for i in 0..4 {
+                assert!(spsc
+                    .try_push(&(expected + i * 2), &(expected + i * 2 + 1))
+                    .is_ok());
+            }
+            assert!(spsc.is_full());
+            // Empty
+            for i in 0..4 {
+                let mut a = 0;
+                let mut b = 0;
+                assert!(spsc.try_pop(&mut a, &mut b).is_ok());
+                assert_eq!(a, expected + i * 2);
+                assert_eq!(b, expected + i * 2 + 1);
+            }
+            assert!(spsc.is_empty());
+            expected += 8;
+        }
+    }
+
+    #[test]
+    fn edge_case_full_empty() {
+        // Test that the FIFO correctly handles transitions between full and empty.
+        let spsc = CohortFifo::<u8>::new(2).unwrap();
+        assert!(spsc.is_empty());
+        assert!(spsc.try_push(&1, &2).is_ok());
+        assert!(spsc.is_full());
+        let mut a = 0;
+        let mut b = 0;
+        assert!(spsc.try_pop(&mut a, &mut b).is_ok());
+        assert_eq!((a, b), (1, 2));
+        assert!(spsc.is_empty());
+        // Try popping again, should fail
+        assert!(spsc.try_pop(&mut a, &mut b).is_err());
+        // Try pushing again
+        assert!(spsc.try_push(&3, &4).is_ok());
+        assert!(spsc.is_full());
+        assert!(spsc.try_pop(&mut a, &mut b).is_ok());
+        assert_eq!((a, b), (3, 4));
+        assert!(spsc.is_empty());
     }
 }
