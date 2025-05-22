@@ -22,7 +22,6 @@ pub struct CohortFifo<T: Copy + std::fmt::Debug> {
     meta: Aligned<Meta<T>>,
     hw_tail: Aligned<UnsafeCell<u32>>,
 
-    
     //Extra fields not used by cohort accelerators
     // This determines the number of elements that can be pushed to the queue
     // before we increment the hw_tail
@@ -60,49 +59,19 @@ impl<'a, T: Copy + std::fmt::Debug> ExactSizeIterator for CohortFifoIter<'a, T> 
     }
 }
 
-/// An iterator over the elements currently in the FIFO queue.
-pub struct CohortFifoIter<'a, T: Copy + std::fmt::Debug> {
-    fifo: &'a CohortFifo<T>,
-    idx: usize,
-    remaining: usize,
-}
-
-impl<'a, T: Copy + std::fmt::Debug> Iterator for CohortFifoIter<'a, T> {
-    type Item = (usize, T);
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.remaining == 0 {
-            return None;
-        }
-        let buffer = unsafe { self.fifo.buffer().as_ref() };
-        let idx = self.idx;
-        let value = buffer[idx];
-        self.idx = (self.idx + 1) % self.fifo.buffer_size();
-        self.remaining -= 1;
-        Some((idx, value))
-    }
-}
-
-impl<'a, T: Copy + std::fmt::Debug> ExactSizeIterator for CohortFifoIter<'a, T> {
-    fn len(&self) -> usize {
-        self.remaining
-    }}
-
 impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
     // Creates new fifo.
     pub fn new(capacity: usize, batch_size: usize) -> Result<Self> {
-        if (batch_size < 2){
+        if batch_size < 2 {
             return Err(Error::BatchSizeTooSmall);
         }
-
-        if (batch_size % 2 != 0){
+        if batch_size % 2 != 0 {
             return Err(Error::BatchSizeNotEven);
         }
-
-        if(capacity < batch_size) {
+        if capacity < batch_size {
             return Err(Error::CapacityLessThanBatchSize);
         }
-        // Capacity must
-        if(capacity % 2 != 0){
+        if capacity % 2 != 0 {
             return Err(Error::CapacityNotEven);
         }
         let buffer = unsafe {
@@ -120,7 +89,6 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
             }),
             hw_tail: Aligned(UnsafeCell::new(0)),
 
-
             batch_size,
             sw_tail: Aligned(UnsafeCell::new(0)),
         })
@@ -130,16 +98,12 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
         if self.is_full() {
             return Err(Error::Full);
         }
-        // println!("-----SENDER QUEUE------");
-        // self.print_queue();
         let sw_tail = self.sw_tail();
         unsafe {
             (*self.buffer().as_ptr())[sw_tail] = *elem1;
             (*self.buffer().as_ptr())[(sw_tail + 1) % self.buffer_size()] = *elem2;
         }
-
-        self.set_tail((tail + 2) % self.buffer_size());
-        // println!("Tail advanced to: {:?}", self.tail());
+        self.set_sw_tail((sw_tail + 2) % self.buffer_size());
         Ok(())
     }
 
@@ -148,20 +112,15 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
         while self.try_push(elem1, elem2).is_err() {}
     }
 
-    pub fn try_pop(&self, elem1: &mut T, elem2: &mut T) -> Result<(), ()> {
+    pub fn try_pop(&self, elem1: &mut T, elem2: &mut T) -> Result<()> {
         // Ensure that the accelerator has pushed at least two elements onto the queue
         if self.is_empty() || self.num_elems() == 1 {
-            // println!("NUMBER OF ELEMS: {}", self.num_elems());
             return Err(Error::Empty);
         }
-        // println!("---------RECEIVER QUEUE--------");
-        // self.print_queue();
         let head = self.head();
         *elem1 = unsafe { (*self.buffer().as_ptr())[head] };
         *elem2 = unsafe { (*self.buffer().as_ptr())[(head + 1) % self.buffer_size()] };
-
         self.set_head((head + 2) % self.buffer_size());
-        // println!("Head advanced to: {:?}", self.head());
         Ok(())
     }
 
@@ -181,10 +140,10 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
         (self.meta.0.buffer_size) as usize
     }
 
-    /// TODO: BIG PROBLEM HERE!!!!! is_full() uses the sw_tail and so 
-    /// if we are a receiver queue and we use this without updating the 
+    /// TODO: BIG PROBLEM HERE!!!!! is_full() uses the sw_tail and so
+    /// if we are a receiver queue and we use this without updating the
     /// sw_tail to the hw_tail set by the accelerator this function is inaccurate.
-    /// 
+    ///
     /// Currently we fix this by updating the hw_tail in try_pop before we call these
     /// functions. But there must be a more elegant way to fix this...
     fn is_full(&self) -> bool {
@@ -199,7 +158,7 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
     /// TODO: BIG PROBLEM HERE!!!! SEE ABOVE COMMENT!!!!!
     fn num_elems(&self) -> usize {
         if self.head() >= self.sw_tail() {
-            return (self.head()-self.sw_tail()); 
+            return self.head() - self.sw_tail();
         } else {
             return self.capacity() + self.head() - self.sw_tail();
         }
@@ -226,7 +185,6 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
             ptr::write_volatile(self.head.0.get(), head as u32);
         }
         fence(Ordering::SeqCst);
-
     }
 
     fn set_hw_tail(&self, tail: usize) {
@@ -235,16 +193,6 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
             ptr::write_volatile(self.hw_tail.0.get(), tail as u32);
         }
         fence(Ordering::SeqCst);
-
-    }
-
-    fn set_sw_tail(&self, tail: usize) {
-        fence(Ordering::SeqCst);
-        unsafe {
-            ptr::write_volatile(self.tail.0.get(), tail as u32);
-        }
-        fence(Ordering::SeqCst);
-
     }
 
     fn set_sw_tail(&self, tail: usize) {
@@ -260,9 +208,32 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
         NonNull::slice_from_raw_parts(self.meta.0.buffer, self.buffer_size())
     }
 
-
     fn capacity(&self) -> usize {
-        self.buffer_size()-1
+        self.buffer_size() - 1
+    }
+
+    /// Returns an iterator over the active elements in the FIFO.
+    pub fn iter(&self) -> CohortFifoIter<'_, T> {
+        let head = self.head();
+        let count = self.num_elems();
+        CohortFifoIter {
+            fifo: self,
+            idx: head,
+            remaining: count,
+        }
+    }
+}
+
+impl<T: Copy + std::fmt::Debug> std::fmt::Debug for CohortFifo<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CohortFifo")
+            .field("head", &self.head())
+            .field("sw_tail", &self.sw_tail())
+            .field("hw_tail", &self.hw_tail())
+            .field("batch_size", &self.batch_size)
+            .field("capacity", &self.capacity())
+            .field("elements", &self.iter().map(|(_, v)| v).collect::<Vec<_>>())
+            .finish()
     }
 }
 
@@ -283,14 +254,14 @@ mod tests {
 
     #[test]
     fn initializes_empty() {
-        let spsc = CohortFifo::<[u8; 16]>::new(10).unwrap();
+        let spsc = CohortFifo::<[u8; 16]>::new(10, 2).unwrap();
         assert!(spsc.is_empty());
     }
 
     #[test]
     fn test_fifo_fill_and_full() {
         // Create a FIFO with capacity for 10 elements (5 pairs)
-        let spsc = CohortFifo::<[u8; 16]>::new(10).unwrap();
+        let spsc = CohortFifo::<[u8; 16]>::new(10, 2).unwrap();
         // Fill the queue with 5 pairs of elements
         for n in 0..5 {
             // Each pair is (n*2, n*2+1) for easy verification
@@ -299,7 +270,7 @@ mod tests {
             assert!(spsc.try_push(&val1, &val2).is_ok());
         }
         // Debug print the FIFO state
-        println!("{spsc}");
+        println!("{:?}", spsc);
         // The FIFO should now be full
         assert!(spsc.is_full());
     }
@@ -307,7 +278,7 @@ mod tests {
     #[test]
     fn test_fifo_extra_push_when_full() {
         // Fill the FIFO to capacity
-        let spsc = CohortFifo::<[u8; 16]>::new(10).unwrap();
+        let spsc = CohortFifo::<[u8; 16]>::new(10, 2).unwrap();
         for n in 0..5 {
             let val1: [u8; 16] = [n * 2; 16];
             let val2: [u8; 16] = [n * 2 + 1; 16];
@@ -324,7 +295,7 @@ mod tests {
     #[test]
     fn test_fifo_emptying() {
         // Fill the FIFO with 5 pairs
-        let spsc = CohortFifo::<[u8; 16]>::new(10).unwrap();
+        let spsc = CohortFifo::<[u8; 16]>::new(10, 2).unwrap();
         for n in 0..5 {
             let val1: [u8; 16] = [n * 2; 16];
             let val2: [u8; 16] = [n * 2 + 1; 16];
@@ -346,12 +317,12 @@ mod tests {
     #[test]
     fn test_fifo_refill_and_empty_again() {
         // Create and fill the FIFO
-        let spsc = CohortFifo::<[u8; 16]>::new(10).unwrap();
-        println!("New FIFO: {spsc}");
+        let spsc = CohortFifo::<[u8; 16]>::new(10, 2).unwrap();
+        println!("New FIFO: {:?}", spsc);
 
         println!("Filling FIFO");
         for n in 0..5 {
-            println!("Fifo (n={n}): {spsc}");
+            println!("Fifo (n={n}): {:?}", spsc);
             let val1: [u8; 16] = [n * 2; 16];
             let val2: [u8; 16] = [n * 2 + 1; 16];
             assert!(spsc.try_push(&val1, &val2).is_ok());
@@ -359,7 +330,7 @@ mod tests {
         // Empty the FIFO completely
         println!("Emptying FIFO");
         for n in 0..5 {
-            println!("Fifo (n={n}): {spsc}");
+            println!("Fifo (n={n}): {:?}", spsc);
             let mut val1 = [0; 16];
             let mut val2 = [0; 16];
             assert!(spsc.try_pop(&mut val1, &mut val2).is_ok());
@@ -367,16 +338,16 @@ mod tests {
         // Refill the FIFO with the same pattern
         println!("Refilling FIFO");
         for n in 0..5 {
-            println!("Fifo (n={n}): {spsc}");
+            println!("Fifo (n={n}): {:?}", spsc);
             let val1: [u8; 16] = [n * 2; 16];
             let val2: [u8; 16] = [n * 2 + 1; 16];
             assert!(spsc.try_push(&val1, &val2).is_ok());
-            println!("Fifo: {}", spsc);
+            println!("Fifo: {:?}", spsc);
         }
         // Empty again and check values
         println!("Reemptying FIFO");
         for n in 0..5 {
-            println!("Fifo (n={n}): {spsc}");
+            println!("Fifo (n={n}): {:?}", spsc);
             let mut val1 = [0; 16];
             let mut val2 = [0; 16];
             assert!(spsc.try_pop(&mut val1, &mut val2).is_ok());
@@ -390,7 +361,7 @@ mod tests {
     #[test]
     fn test_fifo_try_pop_when_empty() {
         // Create an empty FIFO
-        let spsc = CohortFifo::<[u8; 16]>::new(10).unwrap();
+        let spsc = CohortFifo::<[u8; 16]>::new(10, 2).unwrap();
         let mut val1 = [0; 16];
         let mut val2 = [0; 16];
         // Try to pop from the empty FIFO, which should fail
@@ -399,7 +370,7 @@ mod tests {
 
     #[test]
     fn test_two_threads() {
-        let spsc = CohortFifo::<[u8; 16]>::new(10).unwrap();
+        let spsc = CohortFifo::<[u8; 16]>::new(10, 2).unwrap();
 
         std::thread::scope(|s| {
             const THROUGHPUT: u32 = 10_000_000;
@@ -426,7 +397,7 @@ mod tests {
     #[test]
     fn wraparound_behavior() {
         // Test that the FIFO correctly wraps around the buffer boundary.
-        let spsc = CohortFifo::<u8>::new(4).unwrap();
+        let spsc = CohortFifo::<u8>::new(4, 2).unwrap();
         // Fill the buffer (capacity is 4, so 4 elements)
         assert!(spsc.try_push(&1, &2).is_ok());
         assert!(spsc.try_push(&3, &4).is_ok());
@@ -450,7 +421,7 @@ mod tests {
     #[test]
     fn never_overflow_or_underflow() {
         // Test that the FIFO never overflows or underflows, even with repeated wraparounds.
-        let spsc = CohortFifo::<u32>::new(8).unwrap();
+        let spsc = CohortFifo::<u32>::new(8, 2).unwrap();
         let mut expected = 0u32;
         for _ in 0..100 {
             // Fill
@@ -476,7 +447,7 @@ mod tests {
     #[test]
     fn edge_case_full_empty() {
         // Test that the FIFO correctly handles transitions between full and empty.
-        let spsc = CohortFifo::<u8>::new(2).unwrap();
+        let spsc = CohortFifo::<u8>::new(2, 2).unwrap();
         assert!(spsc.is_empty());
         assert!(spsc.try_push(&1, &2).is_ok());
         assert!(spsc.is_full());

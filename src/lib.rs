@@ -15,14 +15,14 @@
 //! // Get data from the accelerator.
 //! let data = cohort.pop();
 //! ```
-#![feature(atomic_from_mut)]
+// // #![feature(atomic_from_mut)]
 #![warn(missing_docs)]
-#![feature(ptr_as_uninit)]
+// // #![feature(ptr_as_uninit)]
 
-mod fifo;
-pub(crate) mod util;
 /// Error types used by the Cohort crate.
 pub mod error;
+mod fifo;
+pub(crate) mod util;
 
 use core::marker::PhantomPinned;
 use core::pin::Pin;
@@ -123,13 +123,12 @@ impl<T: Copy + std::fmt::Debug> Cohort<T> {
 
     /// Returns a string representation of the receiver FIFO.
     pub fn receiver_to_string(&self) -> String {
-        self.receiver.to_string()
+        format!("{:?}", self.receiver)
     }
-    
-    
+
     /// Returns a string representation of the sender FIFO.
     pub fn sender_to_string(&self) -> String {
-        self.sender.to_string()
+        format!("{:?}", self.sender)
     }
 }
 

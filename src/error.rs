@@ -6,6 +6,14 @@ pub enum Error {
     Empty,
     /// The capacity given to [`new`](crate::fifo::Fifo::new) is not divisible by 2.
     Capacity(usize),
+    /// The batch size is too small.
+    BatchSizeTooSmall,
+    /// The batch size is not even.
+    BatchSizeNotEven,
+    /// The capacity is less than the batch size.
+    CapacityLessThanBatchSize,
+    /// The capacity is not even.
+    CapacityNotEven,
 }
 
 impl Error {
@@ -17,6 +25,10 @@ impl Error {
             Error::Capacity(capacity) => {
                 format!("fifo capacity {} is not divisible by 2", capacity)
             }
+            Error::BatchSizeTooSmall => "batch size is too small".to_string(),
+            Error::BatchSizeNotEven => "batch size is not even".to_string(),
+            Error::CapacityLessThanBatchSize => "capacity is less than batch size".to_string(),
+            Error::CapacityNotEven => "capacity is not even".to_string(),
         }
     }
 }

@@ -50,8 +50,8 @@ fn main() {
     let mut accumulator: u64 = 0;
 
     // SAFETY: No other cohorts are associated with id 0.
-    let  cohort: std::pin::Pin<Box<Cohort<[u8;8]>>> = unsafe { Cohort::register(0, 128*50, 64) };
-    let arr1: [u8; 8] = [128,0,0,0,0,0,0,0];
+    let cohort: std::pin::Pin<Box<Cohort<[u8; 8]>>> = unsafe { Cohort::register(0, 128 * 50, 64) };
+    let arr1: [u8; 8] = [128, 0, 0, 0, 0, 0, 0, 0];
     let arr2: [u8; 8] = [2; 8];
 
     for _ in 0..50 {
@@ -59,7 +59,7 @@ fn main() {
         for _ in 0..7 {
             cohort.push(&arr2, &arr2);
         }
-        cohort.push(&arr2, &[0;8]);
+        cohort.push(&arr2, &[0; 8]);
     }
 
     let mut result1 = [0 as u8; 8];
@@ -68,13 +68,13 @@ fn main() {
         // if i == 29 {
         //     cohort.print_receiver();
         // }
-        
+
         cohort.pop(&mut result1, &mut result2);
         for _ in 0..7 {
             cohort.pop(&mut result1, &mut result2);
         }
         println!("LAST POP: {}", i);
-        cohort.pop(&mut result1, &mut [0;8]);
+        cohort.pop(&mut result1, &mut [0; 8]);
     }
 
     cohort.push(&arr1, &arr2);
@@ -96,7 +96,7 @@ fn main() {
     // cohort.push(&arr1, &arr2);
     println!("----------receiver---------");
     cohort.print_receiver();
-    
+
     // cohort.pop(&mut result1, &mut result2);
     // println!("{:?}", result1);
     // println!("{:?}", result2);
