@@ -64,9 +64,12 @@ impl<T: Copy + std::fmt::Debug> Cohort<T> {
     /// # Safety
     ///
     /// The cohort id must not currently be in use.
-    pub unsafe fn register(id: u8, capacity: usize) -> Pin<Box<Self>> {
-        let sender = CohortFifo::new(capacity).unwrap();
-        let receiver = CohortFifo::new(capacity).unwrap();
+    pub unsafe fn register(id: u8, capacity: usize, batch_size: usize) -> Pin<Box<Self>> {
+        let sender = CohortFifo::new(capacity, batch_size).unwrap();
+
+        // Batch size doesn't matter for the receiver because we are not pushing data
+        // onto the receiver queue
+        let receiver = CohortFifo::new(capacity, batch_size).unwrap();
         let custom_data = Aligned(AtomicU64::new(0));
 
         let cohort = Box::pin(Cohort {

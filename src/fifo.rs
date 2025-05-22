@@ -3,7 +3,7 @@ use crate::{util::Aligned, Result};
 use core::ptr::NonNull;
 use std::sync::atomic::{fence, Ordering};
 use std::{
-    alloc::{alloc, dealloc, Layout},
+    alloc::{alloc_zeroed, dealloc, Layout},
     cell::UnsafeCell,
     mem, ptr,
 };
@@ -20,7 +20,16 @@ pub struct CohortFifo<T: Copy + std::fmt::Debug> {
     // Cohort requires that these fields be 128 byte alligned and in the specified order.
     head: Aligned<UnsafeCell<u32>>,
     meta: Aligned<Meta<T>>,
-    tail: Aligned<UnsafeCell<u32>>,
+    hw_tail: Aligned<UnsafeCell<u32>>,
+
+    
+    //Extra fields not used by cohort accelerators
+    // This determines the number of elements that can be pushed to the queue
+    // before we increment the hw_tail
+    batch_size: usize,
+    // This is the tail used internally by the software to keep track of the
+    // true number of elements pushed to the queue
+    sw_tail: Aligned<UnsafeCell<u32>>,
 }
 
 /// An iterator over the elements currently in the FIFO queue.
@@ -51,17 +60,55 @@ impl<'a, T: Copy + std::fmt::Debug> ExactSizeIterator for CohortFifoIter<'a, T> 
     }
 }
 
+/// An iterator over the elements currently in the FIFO queue.
+pub struct CohortFifoIter<'a, T: Copy + std::fmt::Debug> {
+    fifo: &'a CohortFifo<T>,
+    idx: usize,
+    remaining: usize,
+}
+
+impl<'a, T: Copy + std::fmt::Debug> Iterator for CohortFifoIter<'a, T> {
+    type Item = (usize, T);
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 {
+            return None;
+        }
+        let buffer = unsafe { self.fifo.buffer().as_ref() };
+        let idx = self.idx;
+        let value = buffer[idx];
+        self.idx = (self.idx + 1) % self.fifo.buffer_size();
+        self.remaining -= 1;
+        Some((idx, value))
+    }
+}
+
+impl<'a, T: Copy + std::fmt::Debug> ExactSizeIterator for CohortFifoIter<'a, T> {
+    fn len(&self) -> usize {
+        self.remaining
+    }}
+
 impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
     // Creates new fifo.
-    pub fn new(capacity: usize) -> Result<Self> {
-        // Capacity must be divisible by 2.
-        if capacity % 2 != 0 {
-            return Err(Error::Capacity(capacity));
+    pub fn new(capacity: usize, batch_size: usize) -> Result<Self> {
+        if (batch_size < 2){
+            return Err(Error::BatchSizeTooSmall);
+        }
+
+        if (batch_size % 2 != 0){
+            return Err(Error::BatchSizeNotEven);
+        }
+
+        if(capacity < batch_size) {
+            return Err(Error::CapacityLessThanBatchSize);
+        }
+        // Capacity must
+        if(capacity % 2 != 0){
+            return Err(Error::CapacityNotEven);
         }
         let buffer = unsafe {
             let buffer_size = capacity + 1;
             let layout = Layout::from_size_align(buffer_size * mem::size_of::<T>(), 128).unwrap();
-            NonNull::new(alloc(layout)).unwrap()
+            NonNull::new(alloc_zeroed(layout)).unwrap()
         };
 
         Ok(CohortFifo {
@@ -71,7 +118,11 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
                 _elem_size: mem::size_of::<T>() as u32,
                 buffer_size: (capacity + 1) as u32,
             }),
-            tail: Aligned(UnsafeCell::new(0)),
+            hw_tail: Aligned(UnsafeCell::new(0)),
+
+
+            batch_size,
+            sw_tail: Aligned(UnsafeCell::new(0)),
         })
     }
 
@@ -81,10 +132,10 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
         }
         // println!("-----SENDER QUEUE------");
         // self.print_queue();
-        let tail = self.tail();
+        let sw_tail = self.sw_tail();
         unsafe {
-            (*self.buffer().as_ptr())[tail] = *elem1;
-            (*self.buffer().as_ptr())[(tail + 1) % self.buffer_size()] = *elem2;
+            (*self.buffer().as_ptr())[sw_tail] = *elem1;
+            (*self.buffer().as_ptr())[(sw_tail + 1) % self.buffer_size()] = *elem2;
         }
 
         self.set_tail((tail + 2) % self.buffer_size());
@@ -97,9 +148,10 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
         while self.try_push(elem1, elem2).is_err() {}
     }
 
-    pub fn try_pop(&self, elem1: &mut T, elem2: &mut T) -> Result<()> {
+    pub fn try_pop(&self, elem1: &mut T, elem2: &mut T) -> Result<(), ()> {
         // Ensure that the accelerator has pushed at least two elements onto the queue
         if self.is_empty() || self.num_elems() == 1 {
+            // println!("NUMBER OF ELEMS: {}", self.num_elems());
             return Err(Error::Empty);
         }
         // println!("---------RECEIVER QUEUE--------");
@@ -129,24 +181,42 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
         (self.meta.0.buffer_size) as usize
     }
 
-    /// Returns true if the FIFO is full.
-    pub fn is_full(&self) -> bool {
-        (self.head() % self.buffer_size()) == ((self.tail() + 1) % self.buffer_size())
+    /// TODO: BIG PROBLEM HERE!!!!! is_full() uses the sw_tail and so 
+    /// if we are a receiver queue and we use this without updating the 
+    /// sw_tail to the hw_tail set by the accelerator this function is inaccurate.
+    /// 
+    /// Currently we fix this by updating the hw_tail in try_pop before we call these
+    /// functions. But there must be a more elegant way to fix this...
+    fn is_full(&self) -> bool {
+        (self.head() % self.buffer_size()) == ((self.sw_tail() + 1) % self.buffer_size())
     }
 
-    /// Returns true if the FIFO is empty.
-    pub fn is_empty(&self) -> bool {
-        self.head() == self.tail()
+    /// TODO: BIG PROBLEM HERE!!!! SEE ABOVE COMMENT!!!!!
+    fn is_empty(&self) -> bool {
+        self.head() == self.sw_tail()
     }
 
-    /// Returns the current head index.
+    /// TODO: BIG PROBLEM HERE!!!! SEE ABOVE COMMENT!!!!!
+    fn num_elems(&self) -> usize {
+        if self.head() >= self.sw_tail() {
+            return (self.head()-self.sw_tail()); 
+        } else {
+            return self.capacity() + self.head() - self.sw_tail();
+        }
+    }
+
     fn head(&self) -> usize {
         unsafe { ptr::read_volatile(self.head.0.get()) as usize }
     }
 
-    /// Returns the current tail index.
-    fn tail(&self) -> usize {
-        unsafe { ptr::read_volatile(self.tail.0.get()) as usize }
+    /// Returns the current software tail index.
+    fn sw_tail(&self) -> usize {
+        unsafe { ptr::read_volatile(self.sw_tail.0.get()) as usize }
+    }
+
+    /// Returns the current hardware tail index.
+    fn hw_tail(&self) -> usize {
+        unsafe { ptr::read_volatile(self.hw_tail.0.get()) as usize }
     }
 
     /// Sets the head index to the given value with memory ordering guarantees.
@@ -156,13 +226,31 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
             ptr::write_volatile(self.head.0.get(), head as u32);
         }
         fence(Ordering::SeqCst);
+
     }
 
-    /// Sets the tail index to the given value with memory ordering guarantees.
-    fn set_tail(&self, tail: usize) {
+    fn set_hw_tail(&self, tail: usize) {
+        fence(Ordering::SeqCst);
+        unsafe {
+            ptr::write_volatile(self.hw_tail.0.get(), tail as u32);
+        }
+        fence(Ordering::SeqCst);
+
+    }
+
+    fn set_sw_tail(&self, tail: usize) {
         fence(Ordering::SeqCst);
         unsafe {
             ptr::write_volatile(self.tail.0.get(), tail as u32);
+        }
+        fence(Ordering::SeqCst);
+
+    }
+
+    fn set_sw_tail(&self, tail: usize) {
+        fence(Ordering::SeqCst);
+        unsafe {
+            ptr::write_volatile(self.sw_tail.0.get(), tail as u32);
         }
         fence(Ordering::SeqCst);
     }
@@ -172,53 +260,9 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
         NonNull::slice_from_raw_parts(self.meta.0.buffer, self.buffer_size())
     }
 
-    /// Returns the number of elements currently in the FIFO.
-    fn num_elems(&self) -> usize {
-        if self.head() > self.tail() {
-            return self.head() - self.tail();
-        } else {
-            return self.capacity() + self.head() - self.tail();
-        }
-    }
 
-    /// Returns the capacity of the FIFO.
-    /// The capacity is the number of elements that can be stored in the FIFO.
-    /// This is the size of the buffer minus one, as one slot is used to determine if the FIFO is full.
-    pub fn capacity(&self) -> usize {
-        self.buffer_size() - 1
-    }
-
-    /// Returns an iterator over the elements currently in the FIFO queue.
-    pub fn iter(&self) -> CohortFifoIter<'_, T> {
-        let tail = self.tail();
-        CohortFifoIter {
-            fifo: self,
-            idx: tail,
-            remaining: self.num_elems(),
-        }
-    }
-}
-
-impl<T: Copy + std::fmt::Debug> std::fmt::Display for CohortFifo<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let elems: Vec<String> = self
-            .iter()
-            .map(|(idx, value)| format!("[{}]={:?}", idx, value))
-            .collect();
-        write!(
-            f,
-            "CohortFifo {{ head: {}, tail: {}, num_elems: {}, queue: [{}] }}",
-            self.head(),
-            self.tail(),
-            self.num_elems(),
-            elems.join(", ")
-        )
-    }
-}
-
-impl<T: Copy + std::fmt::Debug> std::fmt::Debug for CohortFifo<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_string())
+    fn capacity(&self) -> usize {
+        self.buffer_size()-1
     }
 }
 

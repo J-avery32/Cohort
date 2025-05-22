@@ -1,3 +1,3 @@
 [toolchain]
-channel = "nightly-2024-06-01"
+versioned = "1.78.0"
 targets = ["riscv64gc-unknown-linux-gnu"]
