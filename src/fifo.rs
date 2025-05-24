@@ -108,10 +108,12 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
     }
 
     /// Pushes an element to the fifo.
+    /// Spins if full.
     pub fn push(&self, elem1: &T, elem2: &T) {
         while self.try_push(elem1, elem2).is_err() {}
     }
 
+    /// Tries to pop two elements from the fifo.
     pub fn try_pop(&self, elem1: &mut T, elem2: &mut T) -> Result<()> {
         // Ensure that the accelerator has pushed at least two elements onto the queue
         if self.is_empty() || self.num_elems() == 1 {
@@ -125,6 +127,7 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
     }
 
     /// Pops an element from the fifo.
+    /// Spins if empty.
     pub fn pop(&self, elem1: &mut T, elem2: &mut T) {
         loop {
             if let Ok(()) = self.try_pop(elem1, elem2) {
@@ -158,9 +161,9 @@ impl<T: Copy + std::fmt::Debug> CohortFifo<T> {
     /// TODO: BIG PROBLEM HERE!!!! SEE ABOVE COMMENT!!!!!
     fn num_elems(&self) -> usize {
         if self.head() >= self.sw_tail() {
-            return self.head() - self.sw_tail();
+            self.head() - self.sw_tail()
         } else {
-            return self.capacity() + self.head() - self.sw_tail();
+            self.capacity() + self.head() - self.sw_tail()
         }
     }
 
