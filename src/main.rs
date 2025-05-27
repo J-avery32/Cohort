@@ -10,9 +10,7 @@ const OUT_BATCH_SIZE : usize = BATCH_SIZE;
 
 
 
-//TODO: needs to be updated to use new function signatures defined in lib.rs,
-// These write to the arguments when popping and read from a reference to the argument
-// when pushing
+
 fn main() {
     const PLAIN: [u64; NUM_WORDS] =  [
     0xFFFFFFFFFFFFFFFFu64,0x0000000033221100u64,

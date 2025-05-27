@@ -130,6 +130,16 @@ impl<T: Copy + std::fmt::Debug> Drop for Cohort<T> {
     fn drop(&mut self) {
         unsafe {
             //TODO: check status from syscall
+
+            //TODO: This drop function doesn't seem to work
+            // and we are forced to re-boot the system 
+            // everytime we want to connect to cohort again
+
+            // we need to figure out how to make it analagous to the code here:
+            // https://github.com/pengwing-project/cohort-private/blob/cohort/piton/verif/diag/c/riscv/ariane/cohort_linux/cohort_aes_base.c
+
+            // Maybe it's just an issue with how it's used in Demikernel?
+            // Need to test this
             libc::syscall(257);
         }
     }
