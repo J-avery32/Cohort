@@ -49,7 +49,7 @@ First of all you will need to change this line:
 
 in the top level `linux.mk` file to point to your own riscv compiler. Take a look at this github repo for getting your own riscv toolchain: https://github.com/riscv-collab/riscv-gnu-toolchain. 
 
-Second of all I have not figured out how to get the `all-examples` section of the `linux.mk` to compile. It throws up an error about rust macros. I suspect it could be an issue with this line in the `linux.mk` file:
+Second of all I have not figured out how to get the `all-examples` section of the `linux.mk` to compile. It throws up an error about rust macros, so I commented it out. I suspect it could be an issue with this line in the `linux.mk` file:
 
 ```
 export LD_LIBRARY_PATH ?= $(CURDIR)/lib:$(shell find $(PREFIX)/lib/ -name '*x86_64-linux-gnu*' -type d 2> /dev/null | xargs | sed -e 's/\s/:/g')
