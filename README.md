@@ -35,7 +35,7 @@ specifically in the "OS/buildroot" section. Except you need to use this option i
 
 This ensures that the syscall is the correct version that does all the Cohort setup for you when you call it.
 
-In the `rootfs` folder you will want to add the files I have [here](https://github.com/J-avery32/cohort-buildroot-rootfs), along with any binaries you want to test. This will add these files to the root folder when you load your `fw_payload.bin` on the FPGA.
+In the `rootfs` folder you will want to add the files I have [here](https://github.com/J-avery32/cohort-buildroot-rootfs), along with any demikernel binaries you want to test. This will add these files to the root folder when you load your `fw_payload.bin` on the FPGA.
 
 You should be setting this up on the lab's shared server, Jura, compiling an entire Linux kernel on your own machine will take forever.
 
