@@ -84,7 +84,7 @@ For UDP use this bitstream: `/home/joshuaavery/tcl/udp_u200.bit`
 
 Current issues that need to be investigated:
 
-Wrap-around issues with the queues, data won't wrap around to the beginning of the queue. This could be an issue with the queue size not being a power of 2, see this [conversation](https://openpiton.zulipchat.com/#narrow/channel/320359-pengwing/topic/beehive/near/520333776) (May 25th 2025 in the beehive topic of the #pengwing channel) on Zulip.
+Wrap-around issues with the queues, the accelerator when pushing data won't wrap around to the beginning of the queue. This could be an issue with the queue size not being a power of 2, see this [conversation](https://openpiton.zulipchat.com/#narrow/channel/320359-pengwing/topic/beehive/near/520333776) (May 25th 2025 in the beehive topic of the #pengwing channel) on Zulip.
 
 The entire kernel seems to freeze when I attempt to benchmark 20 rounds of 512+ byte packets. When I put print statements in between some of the pushing and popping this seems to inconsistently fix it. Could also be an issue with queue size not being a power of 2. See [here](https://openpiton.zulipchat.com/#narrow/channel/320359-pengwing/topic/beehive/near/520333880) (May 25th 2025 in the beehive topic of the #pengwing channel) on Zulip.
 
