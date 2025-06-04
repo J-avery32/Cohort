@@ -4,7 +4,7 @@
 
 Cohort (translation to rust) repo: https://github.com/J-avery32/Cohort
 
-The above repo is a translation of these files: 
+The above link is a translation of these files: 
 
 [cohort_aes_base.c](https://github.com/pengwing-project/cohort-private/blob/cohort/piton/verif/diag/c/riscv/ariane/cohort_linux/cohort_aes_base.c)
 
