@@ -61,7 +61,7 @@ The benchmark source code is located in the `tests/rust/udp-tests/bind/mod.rs` i
 
 ### Running the benchmarks
 
-When you get the linux kernel from buildroot running on the fpga you will need to first run `./init_env.sh` which sets up everything correctly. Then you will run `./udp_tests-<some-string-of-characters> --local-address 127.0.0.1:8080 --remote-address 127.0.0.1:8080`. Note that currently there is a bug with the Rust Cohort library where it does not properly clean up after it's `Drop` trait is called. This means that if you want to run the benchmark again you have to re-flash the FPGA.
+When you get the linux kernel from buildroot running on the fpga you will need to first run `./init_env.sh` which sets up everything correctly. Then you will run `./udp_tests-<some-string-of-characters> --local-address 127.0.0.1:8080 --remote-address 127.0.0.1:8080`. Note that currently there is a bug with the Rust Cohort library where it does not properly clean up after it's `Drop` trait is called. This means that if you want to run the benchmark again you have to load the `fw_payload.bin` onto the FPGA again.
 
 In order to get accurate benchmarks you will need to go into the kernel source in buildroot and remove the kernel prints for the that will print: "MMU flush called at: %llx and %llx\n". This is a link to the file in github that contains this code: https://github.com/cohort-project/linux/blob/b1bc3e3f4e4b257cf7619666a2242c47cb374414/drivers/cohort_mmu/dcpn_compressed.h.
 
