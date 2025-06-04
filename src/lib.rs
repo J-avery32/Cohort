@@ -17,6 +17,7 @@
 //! ```
 #![feature(atomic_from_mut)]
 #![warn(missing_docs)]
+#![feature(ptr_as_uninit)]
 
 mod fifo;
 pub(crate) mod util;
@@ -31,6 +32,7 @@ use crate::util::Aligned;
 
 const BACKOFF_COUNTER_VAL: u64 = 240;
 
+
 /// a single-producer, single-consumer (SPSC) interface used to communciate with hardware accelerators.
 ///
 /// ```no_run
@@ -41,7 +43,7 @@ const BACKOFF_COUNTER_VAL: u64 = 240;
 /// // Get data from the accelerator.
 /// let data = cohort.pop();
 /// ```
-pub struct Cohort<T: Copy> {
+pub struct Cohort<T: Copy + std::fmt::Debug> {
     _id: u8,
     sender: CohortFifo<T>,
     receiver: CohortFifo<T>,
@@ -50,15 +52,18 @@ pub struct Cohort<T: Copy> {
     _pin: PhantomPinned,
 }
 
-impl<T: Copy> Cohort<T> {
+impl<T: Copy + std::fmt::Debug> Cohort<T> {
     /// Registers a cohort with the provided id with the given capacity.
     ///
     /// # Safety
     ///
     /// The cohort id must not currently be in use.
-    pub unsafe fn register(id: u8, capacity: usize) -> Pin<Box<Self>> {
-        let sender = CohortFifo::new(capacity);
-        let receiver = CohortFifo::new(capacity);
+    pub unsafe fn register(id: u8, capacity: usize, batch_size: usize) -> Pin<Box<Self>> {
+        let sender = CohortFifo::new(capacity, batch_size).unwrap();
+
+        // Batch size doesn't matter for the receiver because we are not pushing data
+        // onto the receiver queue
+        let receiver = CohortFifo::new(capacity, batch_size).unwrap();
         let custom_data = Aligned(AtomicU64::new(0));
 
         let cohort = Box::pin(Cohort {
@@ -85,36 +90,56 @@ impl<T: Copy> Cohort<T> {
     /// Sends an element to the accelerator.
     ///
     /// May block if the sending end is full.
-    pub fn push(&self, elem: T) {
-        self.sender.push(elem);
+    pub fn push(&self, elem1: &T, elem2: &T) {
+        self.sender.push(elem1, elem2);
     }
 
     /// Receives an element from the accelerator.
     ///
     /// May block if the receiving end is full.
-    pub fn pop(&self) -> T {
-        self.receiver.pop()
+    pub fn pop(&self, elem1: &mut T, elem2: &mut T) {
+        self.receiver.pop(elem1, elem2)
     }
 
     /// Sends an element to the accelerator.
     ///
     /// Will fail if the sending end is full.
-    pub fn try_push(&self, elem: T) -> Result<(), T> {
-        self.sender.try_push(elem)
+    pub fn try_push(&self, elem1: &T, elem2: &T) -> Result<(), ()> {
+        self.sender.try_push(elem1, elem2)
     }
+
 
     /// Receives an element from the accelerator.
     ///
     /// Will fail if receiving end is full.
-    pub fn try_pop(&self) -> Result<T, ()> {
-        self.receiver.try_pop()
+    pub fn try_pop(&self, elem1: &mut T, elem2: &mut T) -> Result<(), ()> {
+        self.receiver.try_pop(elem1, elem2)
     }
+
+    pub fn print_receiver(&self){
+        self.receiver.print_queue();
+    }
+
+    pub fn print_sender(&self){
+        self.sender.print_queue();
+    }
+
 }
 
-impl<T: Copy> Drop for Cohort<T> {
+impl<T: Copy + std::fmt::Debug> Drop for Cohort<T> {
     fn drop(&mut self) {
         unsafe {
             //TODO: check status from syscall
+
+            //TODO: This drop function doesn't seem to work
+            // and we are forced to re-boot the system 
+            // everytime we want to connect to cohort again
+
+            // we need to figure out how to make it analagous to the code here:
+            // https://github.com/pengwing-project/cohort-private/blob/cohort/piton/verif/diag/c/riscv/ariane/cohort_linux/cohort_aes_base.c
+
+            // Maybe it's just an issue with how it's used in Demikernel?
+            // Need to test this
             libc::syscall(257);
         }
     }
